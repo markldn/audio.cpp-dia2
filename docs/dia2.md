@@ -2,7 +2,7 @@
 
 This fork adds an experimental native GGML implementation of [Nari Labs Dia2](https://github.com/nari-labs/dia2). It runs the temporal transformer, all 31 scheduled depth-transformer stages, text alignment/sampling, and the 32-codebook Mimi decoder in C++. Python is used only for conversion and reference validation.
 
-The tested package is **Dia2-1B F16**: [markldn/Dia2-1B-GGUF](https://huggingface.co/markldn/Dia2-1B-GGUF). Download the complete package, including tokenizer sidecars and `mimi-f16.gguf`; the main GGUF alone is insufficient. The main file is approximately 2.15 GB, and Mimi adds approximately 193 MB (decimal units).
+Both the [1B package](https://huggingface.co/markldn/Dia2-1B-GGUF) and [2B package](https://huggingface.co/markldn/Dia2-2B-GGUF) include F16, Q8_0 and Q4_0 files at the repository root. Download the complete package, including tokenizer sidecars and `mimi-f16.gguf`; the main GGUF alone is insufficient. The 1B F16 main file is approximately 2.15 GB, and Mimi adds approximately 193 MB (decimal units).
 
 ## Build and run
 
@@ -30,7 +30,9 @@ curl http://127.0.0.1:8197/v1/audio/speech \
 
 Plain text defaults to speaker one; `[S1]` and `[S2]` markers support dialogue. Output is mono 24 kHz. Ordinary requests return a complete WAV; streaming requests deliver incremental PCM. CPU generation remains slower than realtime and competing workloads can increase latency substantially.
 
-For AMD HIP, build with `HIP_ARCH=<your architecture> ./serve/build-dia2.sh hip`, then use `./serve/start-dia2.sh gpu1`. The supplied HIP profile selects device 1. For Vulkan, build with `./serve/build-dia2.sh vulkan`, then use `./serve/start-dia2.sh vulkan-gpu1`; this hides other Vulkan devices with `GGML_VK_VISIBLE_DEVICES=1` and selects visible device zero. CPU inference is validated; GPU builds are checked by compilation only. Do not evict existing GPU workloads to validate this port.
+The GPU profiles listen on `127.0.0.1:8196`, alongside the CPU service on `8197`. The supplied `audiocpp-dia2-gpu1-server.service` starts the HIP GPU1 profile. The HIP server exposes all six model/quant combinations lazily. Local chat IDs follow `dia2:gpu1:<1b|2b>:<f16|q8_0|q4_0>:<default|kitt|lou>`, labelled **GPU 1 / 16 GB**. The chat proxy serializes GPU requests and unloads only this isolated server's previous model when switching variants. CPU profiles remain separate choices; existing Chatterbox/Qwen services are independent.
+
+For AMD HIP, build with `HIP_ARCH=<your architecture> ./serve/build-dia2.sh hip`, then use `./serve/start-dia2.sh gpu1`. The supplied HIP profile selects device 1. For Vulkan, build with `./serve/build-dia2.sh vulkan`, then use `./serve/start-dia2.sh vulkan-gpu1`; this hides other Vulkan devices with `GGML_VK_VISIBLE_DEVICES=1` and selects visible device zero. CPU and HIP inference are validated; Vulkan is checked by compilation only. Do not evict existing GPU workloads to validate this port.
 
 ## Voice cloning and profiles
 
@@ -47,7 +49,7 @@ For best alignment, pass `options["dia2.reference_words"]` as a JSON string cont
 
 The profiles use the private `serve/voices/` directory. Put mono WAV files and a `prompt_text` file there, with lines `name|exact reference transcript`. Named profiles are discovered by `GET /v1/audio/voices?model=dia2-1b`; request them using `"voice":"name"`. Recordings and private transcripts are ignored by Git and are not uploaded with the GGUF package.
 
-`serve/dia2-kitt-cpu.json` and `./serve/start-dia2.sh kitt-cpu` demonstrate a KITT CPU profile with two threads to reduce contention on a busy machine. On the local chat installation, the existing KITT and Lou recordings are reused as `dia2:kitt` / **Dia 2 KITT (CPU)** and `dia2:lou` / **Dia 2 Lou (CPU)**. Existing Chatterbox profiles remain available. Settings can choose a main, narrator or character voice, and the roleplay panel can override the character voice for a specific chat. KITT/Lou voice modes prefer an explicitly selected Dia2 profile and otherwise use the available engine choices.
+`serve/dia2-kitt-cpu.json` and `./serve/start-dia2.sh kitt-cpu` demonstrate a KITT CPU profile with two threads to reduce contention on a busy machine. On the local chat installation, the existing KITT and Lou recordings are reused as `dia2:kitt` / **Dia 2 KITT (CPU)** and `dia2:lou` / **Dia 2 Lou (CPU)**. Existing Chatterbox profiles remain available. Settings can choose a main, narrator or character voice, and the roleplay panel can override the character voice for a specific chat. In the composer's **Voice mode** menu, choose **Configure mode voices…**, select Lou or another mode, then choose **TTS model and voice for this mode** and save. Each new voice conversation captures its selected profile, leaving the global TTS voice alone. Existing conversations retain their captured voice. Choose **Automatic voice** to use the existing mode defaults.
 
 ## Incremental audio streaming
 
@@ -67,7 +69,7 @@ Dia2's official [demo](https://github.com/nari-labs/dia2/blob/main/gradio_app.py
 
 For example: `[S1] That was a good joke. (laughs) I will give you that one.` Use cues sparingly. Tone and subtle emotions also depend on wording and reference audio.
 
-The local chat's optional **Let Dia 2 use occasional vocal cues when appropriate** setting instructs the conversation model to default to neutral speech and use at most one context-appropriate cue in a short reply. In roleplay the cue stays inside quoted character dialogue; the narrator voice is independent. This is model-guided behavior, not a guaranteed emotion classifier. No GPU model request is needed to configure the setting.
+The mode settings include **Occasional vocal emotions (Dia 2)**. The selected toggle is captured with the voice in each new conversation. The global **Let Dia 2 use occasional vocal cues when appropriate** setting is the fallback for chats without an override; it instructs the conversation model to default to neutral speech and use at most one context-appropriate cue in a short reply. In roleplay the cue stays inside quoted character dialogue; the narrator voice is independent. This is model-guided behavior, not a guaranteed emotion classifier. No GPU model request is needed to configure the setting.
 
 ## Conversion and validation
 
@@ -90,8 +92,33 @@ The validated CPU smoke test, run during HIP compilation, produced 4.48 seconds 
 
 GGUF stores short physical tensor names plus logical names, original ranks and shapes in metadata. Mimi conversion also translates HF module names and its rotary projection layout. The existing Mimi runtime now honors its configured codebook count; its default remains eight for existing users.
 
-Supported and CPU-checked: English 1B TTS, speaker-marked dialogue, single-speaker audio-prefix cloning and incremental audio output. Two-speaker prefixes are implemented but have not been acoustically validated. Not yet validated or implemented: 2B model inference, incremental text/live audio input and non-English speech. The converter accepts F32/F16/Q8; only the F16 package has been validated.
+Supported and CPU-checked: English 1B TTS, speaker-marked dialogue, single-speaker audio-prefix cloning and incremental audio output. Two-speaker prefixes are implemented but have not been acoustically validated. The 2B F16 model also passes official PyTorch parity on HIP GPU1. Both 1B/2B Q8_0 and Q4_0 pass GPU execution probes and short speech smoke tests. Incremental text/live audio input and non-English speech remain unsupported. The converter accepts F32/F16/Q8_0/Q4_0; quantization is lossy and smoke checks do not establish voice quality across prompts.
 
 ## Attribution and licenses
 
 Dia2 code and weights: [nari-labs/dia2](https://github.com/nari-labs/dia2), Apache-2.0. Mimi weights: [kyutai/mimi](https://huggingface.co/kyutai/mimi), CC-BY-4.0. This fork retains audio.cpp's upstream license and attribution. See the Hugging Face model card for exact source revisions and validation results.
+
+## GPU1 validation and speed
+
+ROCm/HIP inference passed the official PyTorch reference comparisons, all 31 cached depth-stage repeat checks, encoder/decoder parity, cloned KITT/Lou speech transcription and stream/full PCM equivalence. The GPU backend requires contiguous MLP activation inputs; this fork materializes those views before SiLU. See [GPU parity](reports/dia2-hip-gpu1-parity.json) and [cloned streaming tests](reports/dia2-hip-gpu1-streaming.json).
+
+On GPU 1 (RX 9070, 16 GB), all six variants passed three warm complete-WAV runs and a streaming run with identical PCM. The table uses the median of those three complete responses and normalizes by measured audio duration. These are unconditioned samples; cloned voices add reference encoding and prefix warmup. Peak VRAM includes all observed allocation on that card.
+
+| Model | Quant | Seconds per 10 seconds of audio | First streaming audio | Peak VRAM (decimal GB) |
+| --- | --- | ---: | ---: | ---: |
+| 1B | F16 | 9.71 | 1.04 s | 4.43 |
+| 1B | Q8_0 | 8.78 | 0.92 s | 4.07 |
+| 1B | Q4_0 | 9.18 | 0.98 s | 3.07 |
+| 2B | F16 | 10.84 | 1.17 s | 6.08 |
+| 2B | Q8_0 | 10.10 | 1.09 s | 7.06 |
+| 2B | Q4_0 | 10.41 | 1.17 s | 3.92 |
+
+See the [six-variant benchmark and transcriptions](reports/dia2-all-variants-gpu1-benchmark.json). Quantization changes sampling; Q4 had more transcription errors in these samples. Lower file size does not guarantee lower backend peak VRAM, as the measured 2B Q8 result shows. GPU 0 stayed essentially idle during this test.
+
+Separate clone checks: KITT's first cold 1B F16 stream produced 4.08 seconds in 16.04 seconds (first chunk 12.24 seconds); a warm Lou reference produced 5.04 seconds in 11.81 seconds (first chunk 7.10 seconds). Both matched full-response PCM. These short samples are not universal latency guarantees.
+
+## 1B and 2B quantized packages
+
+Both [Dia2-1B-GGUF](https://huggingface.co/markldn/Dia2-1B-GGUF) and [Dia2-2B-GGUF](https://huggingface.co/markldn/Dia2-2B-GGUF) contain F16, Q8_0 and Q4_0 at the repository root, sharing one F16 Mimi codec. Pass the chosen `.gguf` file explicitly to `--model`; do not point to a parent directory when you want to select a quant. Guidance scale is 6.0 for 1B and 2.0 for 2B. Reproduce conversion with `--precision f16`, `--precision q8_0` or `--precision q4_0`; Mimi stays F16. Source and tensor-format/speech checks are recorded in [1B quantization](reports/dia2-1b-quantization.json), [2B quantization](reports/dia2-2b-quantization.json) and [2B F16 parity](reports/dia2-2b-f16-parity.json).
+
+The main `gpu1` profile serves all six variants on 8196, with the separate 1B CPU service on 8197. An optional standalone `./serve/start-dia2.sh 2b-gpu1` profile serves 2B F16 on 8195; it is not enabled in the local installation, to avoid duplicate residency. Keep concurrent model residency within available VRAM; the benchmark unloads models between variants.

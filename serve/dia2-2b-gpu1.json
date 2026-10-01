@@ -1,21 +1,21 @@
 {
   "host": "127.0.0.1",
-  "port": 8196,
-  "backend": "vulkan",
-  "device": 0,
+  "port": 8195,
+  "backend": "hip",
+  "device": 1,
   "threads": 2,
   "lazy_load": true,
   "busy_timeout_ms": 1800000,
   "models": [
     {
-      "id": "dia2-1b",
+      "id": "dia2-2b",
       "family": "dia2",
-      "path": "../models/Dia2-1B-GGUF/dia2-f16.gguf",
+      "path": "../models/Dia2-2B-GGUF/dia2-f16.gguf",
       "task": "tts",
       "mode": "streaming",
       "session_options": {
         "dia2.seed": "12345",
-        "dia2.cfg_scale": "6.0"
+        "dia2.cfg_scale": "2.0"
       }
     }
   ],

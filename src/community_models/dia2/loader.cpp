@@ -282,7 +282,10 @@ public:
     auto gate = ggml_view_2d(c, proj, hidden, 2, proj->nb[1], 0);
     auto up =
         ggml_view_2d(c, proj, hidden, 2, proj->nb[1], hidden * sizeof(float));
-    return linear(c, ggml_mul(c, ggml_silu(c, gate), up), p + "wo.weight");
+    return linear(c,
+                  ggml_mul(c, ggml_silu(c, ggml_cont(c, gate)),
+                           ggml_cont(c, up)),
+                  p + "wo.weight");
   }
   std::unique_ptr<Graph> main_graph(int position) {
     auto g = std::make_unique<Graph>(backend);
@@ -1020,7 +1023,8 @@ rt::ModelMetadata make_metadata() {
           "Dia2",
           "Nari Labs Dia2 TTS, audio-prefix cloning and streaming PCM",
           {"config.json"},
-          {"dia2-f16.gguf", "dia2-q8.gguf", "dia2-f32.gguf"}};
+          {"dia2-f16.gguf", "dia2-q8_0.gguf", "dia2-q4_0.gguf",
+           "dia2-q8.gguf", "dia2-f32.gguf"}};
 }
 std::filesystem::path root_of(const std::filesystem::path &p) {
   return std::filesystem::is_directory(p) ? p : p.parent_path();
@@ -1028,7 +1032,8 @@ std::filesystem::path root_of(const std::filesystem::path &p) {
 std::filesystem::path weights_of(const std::filesystem::path &p) {
   if (!std::filesystem::is_directory(p))
     return p;
-  for (auto name : {"dia2-f16.gguf", "dia2-q8.gguf", "dia2-f32.gguf"})
+  for (auto name : {"dia2-f16.gguf", "dia2-q8_0.gguf", "dia2-q4_0.gguf",
+                    "dia2-q8.gguf", "dia2-f32.gguf"})
     if (std::filesystem::exists(p / name))
       return p / name;
   throw std::runtime_error("Dia2 GGUF weights missing");

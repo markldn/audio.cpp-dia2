@@ -1,0 +1,59 @@
+{
+  "model": "Dia2-2B",
+  "backend": "hip",
+  "physical_gpu": 1,
+  "note": "Q8_0/Q4_0 are intentionally lossy; tensor differences against F16 are reported, not held to F16 reference tolerances. Smoke transcription is a limited quality check. Mimi stays F16.",
+  "variants": [
+    {
+      "precision": "f16",
+      "filename": "dia2-f16.gguf",
+      "file_bytes": 3839430592,
+      "tensor_types": {
+        "F16": 320,
+        "F32": 130
+      },
+      "tensor_count": 450,
+      "gpu1_native_probe_passed": true,
+      "cached_depth_stages_exact_on_repeat": 31,
+      "min_float_cosine_vs_f16": 0.9999998807907104,
+      "max_float_rms_vs_f16": 0.0,
+      "speech_audio_seconds": 4.08,
+      "speech_expected": "Hello there. I am ready for our next adventure.",
+      "speech_transcript": "Hello there. I am ready for our next adventure."
+    },
+    {
+      "precision": "q8_0",
+      "filename": "dia2-q8_0.gguf",
+      "file_bytes": 2039972096,
+      "tensor_types": {
+        "Q8_0": 320,
+        "F32": 130
+      },
+      "tensor_count": 450,
+      "gpu1_native_probe_passed": true,
+      "cached_depth_stages_exact_on_repeat": 31,
+      "min_float_cosine_vs_f16": 0.9880629777908325,
+      "max_float_rms_vs_f16": 0.3747681677341461,
+      "speech_audio_seconds": 4.08,
+      "speech_expected": "Hello there. I am ready for our next adventure.",
+      "speech_transcript": "Hello there. I am ready for our next adventure."
+    },
+    {
+      "precision": "q4_0",
+      "filename": "dia2-q4_0.gguf",
+      "file_bytes": 1080260864,
+      "tensor_types": {
+        "Q4_0": 320,
+        "F32": 130
+      },
+      "tensor_count": 450,
+      "gpu1_native_probe_passed": true,
+      "cached_depth_stages_exact_on_repeat": 31,
+      "min_float_cosine_vs_f16": 0.8270571827888489,
+      "max_float_rms_vs_f16": 1.5611823797225952,
+      "speech_audio_seconds": 3.84,
+      "speech_expected": "Hello there. I am ready for our next adventure.",
+      "speech_transcript": "Hello there, I am ready for our next adventure."
+    }
+  ]
+}

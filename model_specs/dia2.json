@@ -130,6 +130,131 @@
         "special_tokens_map.json",
         "added_tokens.json"
       ]
+    },
+    {
+      "id": "dia2_1b_q8_0",
+      "display_name": "Dia2 1B Q8_0 GGUF",
+      "default": false,
+      "format": "gguf",
+      "precision": "q8_0",
+      "target_directory": "Dia2-1B-Q8_0-GGUF",
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "markldn/Dia2-1B-GGUF",
+        "revision": "main",
+        "gated": false
+      },
+      "files": [
+        "dia2-q8_0.gguf",
+        "mimi-f16.gguf",
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "added_tokens.json"
+      ]
+    },
+    {
+      "id": "dia2_1b_q4_0",
+      "display_name": "Dia2 1B Q4_0 GGUF",
+      "default": false,
+      "format": "gguf",
+      "precision": "q4_0",
+      "target_directory": "Dia2-1B-Q4_0-GGUF",
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "markldn/Dia2-1B-GGUF",
+        "revision": "main",
+        "gated": false
+      },
+      "files": [
+        "dia2-q4_0.gguf",
+        "mimi-f16.gguf",
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "added_tokens.json"
+      ]
+    },
+    {
+      "id": "dia2_2b_f16",
+      "display_name": "Dia2 2B F16 GGUF",
+      "default": false,
+      "format": "gguf",
+      "precision": "f16",
+      "target_directory": "Dia2-2B-GGUF",
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "markldn/Dia2-2B-GGUF",
+        "revision": "main",
+        "gated": false
+      },
+      "files": [
+        "dia2-f16.gguf",
+        "mimi-f16.gguf",
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "added_tokens.json"
+      ]
+    },
+    {
+      "id": "dia2_2b_q8_0",
+      "display_name": "Dia2 2B Q8_0 GGUF",
+      "default": false,
+      "format": "gguf",
+      "precision": "q8_0",
+      "target_directory": "Dia2-2B-Q8_0-GGUF",
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "markldn/Dia2-2B-GGUF",
+        "revision": "main",
+        "gated": false
+      },
+      "files": [
+        "dia2-q8_0.gguf",
+        "mimi-f16.gguf",
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "added_tokens.json"
+      ]
+    },
+    {
+      "id": "dia2_2b_q4_0",
+      "display_name": "Dia2 2B Q4_0 GGUF",
+      "default": false,
+      "format": "gguf",
+      "precision": "q4_0",
+      "target_directory": "Dia2-2B-Q4_0-GGUF",
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "markldn/Dia2-2B-GGUF",
+        "revision": "main",
+        "gated": false
+      },
+      "files": [
+        "dia2-q4_0.gguf",
+        "mimi-f16.gguf",
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "added_tokens.json"
+      ]
     }
   ],
   "ui": {

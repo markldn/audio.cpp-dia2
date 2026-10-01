@@ -1,0 +1,14 @@
+[Unit]
+Description=Isolated Dia2 audio.cpp TTS on GPU1 (16 GB)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/scripts/audio.cpp-dia2
+ExecStart=%h/scripts/audio.cpp-dia2/serve/start-dia2.sh gpu1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

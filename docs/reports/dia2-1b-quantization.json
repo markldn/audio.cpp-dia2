@@ -1,0 +1,59 @@
+{
+  "model": "Dia2-1B",
+  "backend": "hip",
+  "physical_gpu": 1,
+  "note": "Q8_0/Q4_0 are intentionally lossy; tensor differences against F16 are reported, not held to F16 reference tolerances. Smoke transcription is a limited quality check. Mimi stays F16.",
+  "variants": [
+    {
+      "precision": "f16",
+      "filename": "dia2-f16.gguf",
+      "file_bytes": 2152693280,
+      "tensor_types": {
+        "F16": 306,
+        "F32": 134
+      },
+      "tensor_count": 440,
+      "gpu1_native_probe_passed": true,
+      "cached_depth_stages_exact_on_repeat": 31,
+      "min_float_cosine_vs_f16": 0.9999998807907104,
+      "max_float_rms_vs_f16": 0.0,
+      "speech_audio_seconds": 2.4,
+      "speech_expected": "Hello there. I am ready for our next adventure.",
+      "speech_transcript": "Hello there, I am ready for our next adventure."
+    },
+    {
+      "precision": "q8_0",
+      "filename": "dia2-q8_0.gguf",
+      "file_bytes": 1143787104,
+      "tensor_types": {
+        "Q8_0": 306,
+        "F32": 134
+      },
+      "tensor_count": 440,
+      "gpu1_native_probe_passed": true,
+      "cached_depth_stages_exact_on_repeat": 31,
+      "min_float_cosine_vs_f16": 0.9993353486061096,
+      "max_float_rms_vs_f16": 0.10032933205366135,
+      "speech_audio_seconds": 2.4,
+      "speech_expected": "Hello there. I am ready for our next adventure.",
+      "speech_transcript": "Hello there, I am ready for our next advent"
+    },
+    {
+      "precision": "q4_0",
+      "filename": "dia2-q4_0.gguf",
+      "file_bytes": 605703776,
+      "tensor_types": {
+        "Q4_0": 306,
+        "F32": 134
+      },
+      "tensor_count": 440,
+      "gpu1_native_probe_passed": true,
+      "cached_depth_stages_exact_on_repeat": 31,
+      "min_float_cosine_vs_f16": 0.9529566168785095,
+      "max_float_rms_vs_f16": 0.6514842510223389,
+      "speech_audio_seconds": 2.72,
+      "speech_expected": "Hello there. I am ready for our next adventure.",
+      "speech_transcript": "Hello there, I am ready for our next advent."
+    }
+  ]
+}

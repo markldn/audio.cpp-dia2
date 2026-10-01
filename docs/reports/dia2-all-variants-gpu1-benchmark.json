@@ -1,0 +1,130 @@
+{
+  "backend": "hip",
+  "physical_gpu": 1,
+  "seed": 12345,
+  "voice": "unconditioned",
+  "repeats": 3,
+  "text": "Hello there. This is a longer speech test to measure how quickly Dia two generates audio on the processor. The graphics cards are busy, so this test uses only system memory.",
+  "results": [
+    {
+      "model": "dia2-1b-f16",
+      "audio_seconds": 9.2,
+      "warm_wall_seconds": 8.936408970999764,
+      "warm_runs_seconds": [
+        9.037003689998528,
+        8.920354976988165,
+        8.936408970999764
+      ],
+      "seconds_per_10s_audio": 9.713488011956265,
+      "rtf_wall_over_audio": 0.9713488011956266,
+      "cold_warmup_seconds": 7.882643826014828,
+      "cold_warmup_audio_seconds": 2.24,
+      "stream_first_audio_seconds": 1.0440958680119365,
+      "stream_wall_seconds": 9.1258678130107,
+      "stream_chunks": 29,
+      "stream_full_pcm_identical": true,
+      "observed_peak_total_vram_bytes": 4431851520,
+      "speech_transcript": "Hello there. This is a longer speech test to measure how quickly DIA2 generates audio on the processor. The graphics cards are busy, so this test uses only system memory."
+    },
+    {
+      "model": "dia2-1b-q8_0",
+      "audio_seconds": 10.32,
+      "warm_wall_seconds": 9.059838503977517,
+      "warm_runs_seconds": [
+        9.028080397984013,
+        9.693386005994398,
+        9.059838503977517
+      ],
+      "seconds_per_10s_audio": 8.77891327904798,
+      "rtf_wall_over_audio": 0.8778913279047981,
+      "cold_warmup_seconds": 7.731107288011117,
+      "cold_warmup_audio_seconds": 2.24,
+      "stream_first_audio_seconds": 0.9175918679975439,
+      "stream_wall_seconds": 9.029972859978443,
+      "stream_chunks": 33,
+      "stream_full_pcm_identical": true,
+      "observed_peak_total_vram_bytes": 4069044224,
+      "speech_transcript": "Hello there. This is a longer speech test to measure how quickly DIA2 generates audio on the processor. The graphics cards are busy, so this test uses only system memory."
+    },
+    {
+      "model": "dia2-1b-q4_0",
+      "audio_seconds": 9.2,
+      "warm_wall_seconds": 8.44708929999615,
+      "warm_runs_seconds": [
+        8.437524612993002,
+        8.473964169010287,
+        8.44708929999615
+      ],
+      "seconds_per_10s_audio": 9.181618804343643,
+      "rtf_wall_over_audio": 0.9181618804343643,
+      "cold_warmup_seconds": 6.929399182990892,
+      "cold_warmup_audio_seconds": 2.24,
+      "stream_first_audio_seconds": 0.9814784610061906,
+      "stream_wall_seconds": 8.97351034701569,
+      "stream_chunks": 29,
+      "stream_full_pcm_identical": true,
+      "observed_peak_total_vram_bytes": 3067138048,
+      "speech_transcript": "Blue there, this is a longer speech test to measure how quickly DR2 generates audio on the processor. The graphics cards are busy, so this test uses only system memory."
+    },
+    {
+      "model": "dia2-2b-f16",
+      "audio_seconds": 10.0,
+      "warm_wall_seconds": 10.835288524016505,
+      "warm_runs_seconds": [
+        10.835288524016505,
+        10.823739613988437,
+        10.880142317997525
+      ],
+      "seconds_per_10s_audio": 10.835288524016505,
+      "rtf_wall_over_audio": 1.0835288524016504,
+      "cold_warmup_seconds": 8.640942830999848,
+      "cold_warmup_audio_seconds": 1.92,
+      "stream_first_audio_seconds": 1.1721965110045858,
+      "stream_wall_seconds": 10.860017908009468,
+      "stream_chunks": 32,
+      "stream_full_pcm_identical": true,
+      "observed_peak_total_vram_bytes": 6080806912,
+      "speech_transcript": "Hello there, this is a longer speech test to measure how quickly DIA2 generates audio on the processor. The graphics cards are busy, so this test uses only system memory."
+    },
+    {
+      "model": "dia2-2b-q8_0",
+      "audio_seconds": 9.76,
+      "warm_wall_seconds": 9.860156869981438,
+      "warm_runs_seconds": [
+        9.864016301988158,
+        9.860156869981438,
+        9.799367412982974
+      ],
+      "seconds_per_10s_audio": 10.10261974383344,
+      "rtf_wall_over_audio": 1.010261974383344,
+      "cold_warmup_seconds": 8.114660722989356,
+      "cold_warmup_audio_seconds": 1.92,
+      "stream_first_audio_seconds": 1.0865771259996109,
+      "stream_wall_seconds": 9.8507219190069,
+      "stream_chunks": 31,
+      "stream_full_pcm_identical": true,
+      "observed_peak_total_vram_bytes": 7062487040,
+      "speech_transcript": "Hello there, this is a longer speech test to measure how quickly Dia 2 generates audio on the processor. The graphics cards are busy, so this test uses only system memory."
+    },
+    {
+      "model": "dia2-2b-q4_0",
+      "audio_seconds": 10.0,
+      "warm_wall_seconds": 10.414115544001106,
+      "warm_runs_seconds": [
+        10.560035278991563,
+        10.414115544001106,
+        10.249566001992207
+      ],
+      "seconds_per_10s_audio": 10.414115544001106,
+      "rtf_wall_over_audio": 1.0414115544001106,
+      "cold_warmup_seconds": 7.385723632993177,
+      "cold_warmup_audio_seconds": 1.92,
+      "stream_first_audio_seconds": 1.1713982009969186,
+      "stream_wall_seconds": 10.284534041013103,
+      "stream_chunks": 32,
+      "stream_full_pcm_identical": true,
+      "observed_peak_total_vram_bytes": 3918651392,
+      "speech_transcript": "Below there, this is a longer speech test to measure how quickly DO2 generates audio on the processor. The graphics cards are busy, so this test uses only system memory."
+    }
+  ]
+}

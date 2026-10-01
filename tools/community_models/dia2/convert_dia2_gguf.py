@@ -5,13 +5,19 @@ from pathlib import Path
 import numpy as np
 import torch
 from safetensors import safe_open
-from gguf import GGUFWriter, GGMLQuantizationType, GGUFValueType, quantize
+from gguf import GGUFWriter, GGMLQuantizationType, GGUFValueType, LlamaFileType, quantize
 
 def write(source, output, architecture, precision, config=None, mimi=False):
     output.parent.mkdir(parents=True, exist_ok=True)
     writer = GGUFWriter(str(output), architecture, use_temp_file=True)
     writer.add_name('Dia2' if not mimi else 'Kyutai Mimi')
     writer.add_string('general.license', 'apache-2.0' if not mimi else 'cc-by-4.0')
+    file_type = (LlamaFileType.MOSTLY_Q8_0 if precision.startswith('q8') else
+                 LlamaFileType.MOSTLY_Q4_0 if precision.startswith('q4') else
+                 LlamaFileType.ALL_F32 if precision == 'f32' else LlamaFileType.MOSTLY_F16)
+    writer.add_file_type(file_type)
+    if precision.startswith(('q8', 'q4')):
+        writer.add_quantization_version(2)
     if config: writer.add_string('dia2.config', json.dumps(config))
     count = 0; names=[]; ranks=[]; shapes=[]
     with safe_open(str(source), framework='pt', device='cpu') as f:
@@ -39,8 +45,11 @@ def write(source, output, architecture, precision, config=None, mimi=False):
             names.append(name); ranks.append(arr.ndim); shapes.extend(arr.shape)
             arr=np.ascontiguousarray(arr)
             qtype=GGMLQuantizationType.F32
-            if arr.ndim==2 and not mimi and precision=='q8':
-                arr=quantize(arr, GGMLQuantizationType.Q8_0); qtype=GGMLQuantizationType.Q8_0
+            if arr.ndim==2 and not mimi and precision in ('q8', 'q8_0', 'q4', 'q4_0'):
+                qtype = GGMLQuantizationType.Q8_0 if precision.startswith('q8') else GGMLQuantizationType.Q4_0
+                if arr.shape[-1] % 32:
+                    raise ValueError(f'{key}: row width must be divisible by 32 for {qtype.name}')
+                arr=quantize(arr, qtype)
             elif arr.ndim>=2 and precision!='f32':
                 arr=arr.astype(np.float16); qtype=GGMLQuantizationType.F16
             writer.add_tensor(f"t{count:04d}",arr,raw_dtype=qtype)
@@ -52,7 +61,7 @@ def write(source, output, architecture, precision, config=None, mimi=False):
     print(f'{output}: {count} tensors, {output.stat().st_size/1e9:.3f} GB',flush=True)
 
 def main():
-    ap=argparse.ArgumentParser(); ap.add_argument('model',type=Path); ap.add_argument('output',type=Path); ap.add_argument('--precision',choices=['f32','f16','q8'],default='f16'); ap.add_argument('--mimi',type=Path)
+    ap=argparse.ArgumentParser(); ap.add_argument('model',type=Path); ap.add_argument('output',type=Path); ap.add_argument('--precision',choices=['f32','f16','q8','q8_0','q4','q4_0'],default='f16'); ap.add_argument('--mimi',type=Path)
     a=ap.parse_args(); a.output.mkdir(parents=True,exist_ok=True)
     config=json.loads((a.model/'config.json').read_text())
     write(a.model/'model.safetensors',a.output/f'dia2-{a.precision}.gguf','dia2',a.precision,config)

@@ -47,7 +47,9 @@ python tests/dia2/compare_reference.py models/Dia2-1B-GGUF \
 
 Reference validation requires the dependencies of the upstream model modules and Hugging Face Transformers with Mimi support. The deterministic test compares three temporal steps, all 31 depth stages, and decoded Mimi PCM against the official PyTorch implementation. Native sampling has a different random-number generator, so complete utterances need not match Python sample-for-sample.
 
-The validated CPU smoke test produced 4.48 seconds of audio in 739.32 seconds on a busy machine (six requested threads, peak RSS approximately 3.19 GiB). Parakeet recognized the sentence, with errors for the model name and spelled-out letters. The eight-codebook decoder regression and tokenizer/speaker-marker comparison also passed. Numerical results are recorded in [dia2-f16-parity.json](reports/dia2-f16-parity.json).
+With compilation finished and the model resident, a subsequent CPU server request generated **exactly 10.0 seconds of audio in 61.20 seconds**, using six requested threads (RTF 6.12). See [the measured request](reports/dia2-cpu-benchmark.json). Cold loading and competing workloads add latency.
+
+The validated CPU smoke test, run during HIP compilation, produced 4.48 seconds of audio in 739.32 seconds on a busy machine (six requested threads, peak RSS approximately 3.19 GiB). Parakeet recognized the sentence, with errors for the model name and spelled-out letters. The eight-codebook decoder regression and tokenizer/speaker-marker comparison also passed. Numerical results are recorded in [dia2-f16-parity.json](reports/dia2-f16-parity.json).
 
 GGUF stores short physical tensor names plus logical names, original ranks and shapes in metadata. Mimi conversion also translates HF module names and its rotary projection layout. The existing Mimi runtime now honors its configured codebook count; its default remains eight for existing users.
 

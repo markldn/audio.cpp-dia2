@@ -1,0 +1,6 @@
+{
+  "wall_seconds": 61.19795351999346,
+  "audio_seconds": 10.0,
+  "seconds_per_10s_audio": 61.19795351999346,
+  "text": "Hello there. This is a longer speech test to measure how quickly Dia two generates audio on the processor. The graphics cards are busy, so this test uses only system memory."
+}

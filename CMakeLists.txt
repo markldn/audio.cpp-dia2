@@ -661,6 +661,12 @@ audiocpp_add_model(parakeet_tdt
         engine::community_models::parakeet_tdt::make_parakeet_tdt_loader
 )
 
+audiocpp_add_model(dia2
+    SOURCES src/community_models/dia2/loader.cpp
+    INCLUDES engine/community_models/dia2/loader.h
+    LOADERS engine::community_models::dia2::make_dia2_loader
+)
+
 audiocpp_add_model(personaplex
     SOURCES
         src/models/personaplex/assets.cpp
@@ -3094,4 +3100,9 @@ if (ENGINE_BUILD_EXAMPLES)
     if (ENGINE_ENABLE_OPENMP)
         target_link_libraries(model_spec_download_demo PRIVATE OpenMP::OpenMP_CXX)
     endif()
+endif()
+
+if(dia2 IN_LIST AUDIOCPP_LINKED_MODELS)
+    add_executable(dia2_parity_probe EXCLUDE_FROM_ALL tests/dia2/probe.cpp)
+    target_link_libraries(dia2_parity_probe PRIVATE engine_runtime ggml)
 endif()

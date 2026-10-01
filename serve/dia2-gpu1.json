@@ -1,0 +1,22 @@
+{
+  "host": "127.0.0.1",
+  "port": 8197,
+  "backend": "hip",
+  "device": 1,
+  "threads": 6,
+  "lazy_load": true,
+  "busy_timeout_ms": 1800000,
+  "models": [
+    {
+      "id": "dia2-1b",
+      "family": "dia2",
+      "path": "../models/Dia2-1B-GGUF/dia2-f16.gguf",
+      "task": "tts",
+      "mode": "offline",
+      "session_options": {
+        "dia2.seed": "12345",
+        "dia2.cfg_scale": "6.0"
+      }
+    }
+  ]
+}

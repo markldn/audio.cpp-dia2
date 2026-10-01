@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "family": "dia2",
+  "display_name": "Dia2",
+  "description": "Experimental native Dia2 dialogue TTS. Offline English generation; no voice-prefix cloning yet.",
+  "category": "tts",
+  "status": "community",
+  "tasks": [
+    "tts"
+  ],
+  "modes": [
+    "offline"
+  ],
+  "languages": [
+    "en"
+  ],
+  "runtime": {
+    "tags": [
+      "gguf"
+    ]
+  },
+  "capabilities": {},
+  "options": {
+    "request": [
+      {
+        "name": "dia2.seed",
+        "type": "int",
+        "default": 12345,
+        "description": "Sampling seed."
+      },
+      {
+        "name": "dia2.temperature",
+        "type": "float",
+        "default": 0.8,
+        "min": 0,
+        "description": "Audio sampling temperature."
+      },
+      {
+        "name": "dia2.cfg_scale",
+        "type": "float",
+        "default": 6.0,
+        "description": "Upstream classifier-guidance filter scale."
+      },
+      {
+        "name": "dia2.max_steps",
+        "type": "int",
+        "default": 1500,
+        "min": 20,
+        "max": 1500,
+        "description": "Maximum audio generation steps."
+      }
+    ]
+  },
+  "packages": [
+    {
+      "id": "dia2_1b_f16",
+      "display_name": "Dia2 1B F16 GGUF",
+      "default": true,
+      "format": "gguf",
+      "precision": "f16",
+      "target_directory": "Dia2-1B-GGUF",
+      "download": {
+        "kind": "huggingface_snapshot",
+        "repo": "markldn/Dia2-1B-GGUF",
+        "revision": "main",
+        "gated": false
+      },
+      "files": [
+        "dia2-f16.gguf",
+        "mimi-f16.gguf",
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "special_tokens_map.json",
+        "added_tokens.json"
+      ]
+    }
+  ],
+  "ui": {
+    "recommended_package": "dia2_1b_f16",
+    "tags": [
+      "TTS",
+      "Dialogue",
+      "GGUF"
+    ],
+    "docs": [
+      "docs/dia2.md"
+    ]
+  },
+  "sources": [
+    {
+      "format": "gguf",
+      "roots": {
+        "model": ".",
+        "weights": "$gguf"
+      },
+      "files": {
+        "config": "model:config.json"
+      },
+      "tensors": {
+        "weights": "weights:"
+      }
+    }
+  ]
+}

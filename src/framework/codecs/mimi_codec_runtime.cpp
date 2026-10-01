@@ -24,7 +24,6 @@ namespace {
 
 constexpr float kCodebookEps = 1.0e-5F;
 constexpr float kMaskedAttentionBias = -std::numeric_limits<float>::infinity();
-constexpr int64_t kMimiActiveCodebooks = 8;
 constexpr int64_t kMimiFrameSamples = 1920;
 namespace binding = engine::modules::binding;
 
@@ -1508,7 +1507,7 @@ core::TensorValue quantizer_decode(
     semantic = project_quantized_latent(ctx, semantic, weights.quantizer.semantic_output_proj, config);
 
     core::TensorValue acoustic;
-    for (int64_t codebook = 1; codebook < kMimiActiveCodebooks; ++codebook) {
+    for (int64_t codebook = 1; codebook < config.codebooks; ++codebook) {
         auto decoded = codebook_decode(
             ctx,
             codes_t_q_b,
@@ -1718,7 +1717,7 @@ struct MimiDecoderRuntime::Impl {
                 "mimi_codec.quantizer_decode",
                 backend_type,
             };
-            codes = ggml_new_tensor_3d(ctx.get(), GGML_TYPE_I32, code_frames, kMimiActiveCodebooks, 1);
+            codes = ggml_new_tensor_3d(ctx.get(), GGML_TYPE_I32, code_frames, config.codebooks, 1);
             ggml_set_input(codes);
             auto hidden = core::ensure_backend_addressable_layout(
                 build_ctx,
@@ -1753,14 +1752,14 @@ struct MimiDecoderRuntime::Impl {
         }
 
         std::vector<float> run(const std::vector<int32_t> & input_codes) {
-            if (static_cast<int64_t>(input_codes.size()) != code_frames * kMimiActiveCodebooks) {
+            if (static_cast<int64_t>(input_codes.size()) != code_frames * config.codebooks) {
                 throw std::runtime_error("Mimi codec quantizer decoder code tensor size mismatch");
             }
-            std::vector<int32_t> tensor_codes(static_cast<size_t>(code_frames * kMimiActiveCodebooks));
+            std::vector<int32_t> tensor_codes(static_cast<size_t>(code_frames * config.codebooks));
             for (int64_t frame = 0; frame < code_frames; ++frame) {
-                for (int64_t codebook = 0; codebook < kMimiActiveCodebooks; ++codebook) {
+                for (int64_t codebook = 0; codebook < config.codebooks; ++codebook) {
                     tensor_codes[static_cast<size_t>(frame + code_frames * codebook)] =
-                        input_codes[static_cast<size_t>(frame * kMimiActiveCodebooks + codebook)];
+                        input_codes[static_cast<size_t>(frame * config.codebooks + codebook)];
                 }
             }
             ggml_backend_tensor_set(codes, tensor_codes.data(), 0, tensor_codes.size() * sizeof(int32_t));
@@ -1837,8 +1836,8 @@ runtime::AudioBuffer MimiDecoderRuntime::Impl::decode_with_state(
     int64_t frames,
     MimiDecoderState & state,
     bool & transformer_initialized) {
-    if (frames <= 0 || static_cast<int64_t>(codes.size()) != frames * kMimiActiveCodebooks) {
-        throw std::runtime_error("Mimi codec decode requires frames * 8 codes");
+    if (frames <= 0 || static_cast<int64_t>(codes.size()) != frames * config.codebooks) {
+        throw std::runtime_error("Mimi codec decode requires frames * configured codebooks codes");
     }
     if (cache.quantizer_graph == nullptr || cache.quantizer_frames != frames) {
         cache.quantizer_graph = std::make_unique<Impl::QuantizerGraph>(
@@ -1950,10 +1949,10 @@ struct MimiEncoderRuntime::Impl {
         const auto & weights = *this->weights;
 
         const int64_t code_frames = static_cast<int64_t>(mono.size()) / kMimiFrameSamples;
-        std::vector<int32_t> out(static_cast<size_t>(code_frames * kMimiActiveCodebooks));
+        std::vector<int32_t> out(static_cast<size_t>(code_frames * config.codebooks));
         std::vector<MimiCodecCodebookWeights> acoustic_codebooks;
-        acoustic_codebooks.reserve(static_cast<size_t>(kMimiActiveCodebooks - 1));
-        for (int64_t index = 0; index < kMimiActiveCodebooks - 1; ++index) {
+        acoustic_codebooks.reserve(static_cast<size_t>(config.codebooks - 1));
+        for (int64_t index = 0; index < config.codebooks - 1; ++index) {
             acoustic_codebooks.push_back(weights.quantizer.acoustic_codebooks[static_cast<size_t>(index)]);
         }
 
@@ -2012,9 +2011,9 @@ struct MimiEncoderRuntime::Impl {
                 1,
                 acoustic_codebooks,
                 config.latent_size);
-            out[static_cast<size_t>(frame * kMimiActiveCodebooks)] = semantic_codes.front();
-            for (int64_t q = 1; q < kMimiActiveCodebooks; ++q) {
-                out[static_cast<size_t>(frame * kMimiActiveCodebooks + q)] =
+            out[static_cast<size_t>(frame * config.codebooks)] = semantic_codes.front();
+            for (int64_t q = 1; q < config.codebooks; ++q) {
+                out[static_cast<size_t>(frame * config.codebooks + q)] =
                     acoustic_codes[static_cast<size_t>(q - 1)];
             }
         }

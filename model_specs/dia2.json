@@ -2,24 +2,34 @@
   "schema_version": 1,
   "family": "dia2",
   "display_name": "Dia2",
-  "description": "Experimental native Dia2 dialogue TTS. Offline English generation; no voice-prefix cloning yet.",
+  "description": "Native Dia2 dialogue TTS with audio-prefix voice cloning and incremental PCM output.",
   "category": "tts",
   "status": "community",
   "tasks": [
-    "tts"
+    "tts",
+    "clon"
   ],
   "modes": [
-    "offline"
+    "offline",
+    "streaming"
   ],
   "languages": [
     "en"
   ],
   "runtime": {
     "tags": [
-      "gguf"
+      "gguf",
+      "stream"
     ]
   },
-  "capabilities": {},
+  "capabilities": {
+    "tts": [
+      "speaker_reference"
+    ],
+    "clon": [
+      "speaker_reference"
+    ]
+  },
   "options": {
     "request": [
       {
@@ -48,6 +58,50 @@
         "min": 20,
         "max": 1500,
         "description": "Maximum audio generation steps."
+      },
+      {
+        "name": "reference_text",
+        "type": "string",
+        "description": "Transcript of speaker-one reference audio. Approximate timing is used unless reference_words is supplied."
+      },
+      {
+        "name": "dia2.reference_words",
+        "type": "string",
+        "description": "JSON array of reference words: text, start, end in seconds. Preferred over approximate transcript timing."
+      },
+      {
+        "name": "dia2.prefix_speaker_1",
+        "type": "string",
+        "description": "Optional speaker-one WAV path; alternatively use voice_ref."
+      },
+      {
+        "name": "dia2.prefix_speaker_2",
+        "type": "string",
+        "description": "Optional speaker-two WAV path; requires speaker-one reference."
+      },
+      {
+        "name": "dia2.reference_text_2",
+        "type": "string",
+        "description": "Transcript of speaker-two reference audio."
+      },
+      {
+        "name": "dia2.reference_words_2",
+        "type": "string",
+        "description": "JSON array of timed speaker-two reference words."
+      },
+      {
+        "name": "dia2.include_prefix",
+        "type": "bool",
+        "default": false,
+        "description": "Keep reference prefix in output instead of cropping it."
+      },
+      {
+        "name": "dia2.chunk_frames",
+        "type": "int",
+        "default": 4,
+        "min": 1,
+        "max": 25,
+        "description": "Frames per streamed PCM delta; each frame is 80 ms."
       }
     ]
   },

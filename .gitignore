@@ -54,3 +54,5 @@ docs/FALCON_H1_0.1B_PORT_PLAN.md
 /tests/dia2/out-*/
 /tests/dia2/speech-*/
 /tests/dia2/*.wav
+
+/serve/voices/

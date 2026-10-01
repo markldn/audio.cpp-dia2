@@ -4,9 +4,9 @@ int main(int argc, char **argv) {
   try {
     if (argc < 3)
       throw std::runtime_error("Usage: dia2_parity_probe PACKAGE OUTPUT "
-                               "[WEIGHTS] [BACKEND] [DEVICE]");
+                               "[WEIGHTS] [BACKEND] [DEVICE] [THREADS]");
     engine::runtime::SessionOptions o;
-    o.backend.threads = 6;
+    o.backend.threads = argc > 6 ? std::stoi(argv[6]) : 6;
     if (argc > 4)
       o.backend.type =
           (std::string(argv[4]) == "hip" ? engine::core::BackendType::Hip

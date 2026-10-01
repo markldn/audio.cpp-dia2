@@ -317,8 +317,13 @@ public:
     return g;
   }
   Graph &dep_graph(int stage) {
-    if (dep_graphs[stage])
+    if (dep_graphs[stage]) {
+      // Inputs can share allocator storage with later intermediates, so
+      // restore the RoPE position on every invocation of a cached graph.
+      if (config.dep_rope)
+        dep_graphs[stage]->set<int32_t>("position", {stage});
       return *dep_graphs[stage];
+    }
     auto g = std::make_unique<Graph>(backend);
     auto c = g->ctx.get();
     int wi = config.schedule[stage];
@@ -379,11 +384,11 @@ public:
   std::deque<int32_t> pending, lookahead;
   int budget = 0, forced = 0, end = -1;
   std::vector<std::pair<std::string, int>> transcript;
-  std::pair<int, int> process(int step, int action) {
+  std::pair<int, int> process(int step, int action, bool is_forced = false) {
     int token = action == 1 ? 2 : 3;
-    if (!pending.empty() || forced > 0)
+    if (!pending.empty() || (!is_forced && forced > 0))
       token = 3;
-    else if (budget <= 0)
+    else if (!is_forced && budget <= 0)
       token = 2;
     if (token == 2) {
       if (!entries.empty()) {
@@ -444,7 +449,8 @@ std::vector<Entry> parse_script(std::string text,
   for (char c : text)
     normalized += c == ':' ? ' ' : c;
   normalized = std::regex_replace(normalized, std::regex("’"), "'");
-  std::regex event(R"re(<break\s+time="([0-9]+(?:.[0-9]*)?)s"\s*/?>|\s+)re");
+  std::regex event(
+      R"re(<break\s+time="([0-9]+(?:.[0-9]*)?)s"\s*/?>|(\([^()]*\))|\s+)re");
   bool first = true;
   std::string pending;
   auto add = [&](const std::string &word) {
@@ -473,6 +479,17 @@ std::vector<Entry> parse_script(std::string text,
       int pad = int(std::round(std::stod(m[1]) * 12.5));
       if (pad > 0)
         out.push_back({{}, "", pad});
+    }
+    if (m[2].matched) {
+      auto tag = m[2].str();
+      if (tok.find_token_id(tag))
+        add(tag);
+      else {
+        std::istringstream words(tag);
+        std::string word;
+        while (words >> word)
+          add(word);
+      }
     }
   }
   add(normalized.substr(start));
@@ -521,7 +538,86 @@ float option(const std::unordered_map<std::string, std::string> &o,
     throw std::invalid_argument("Dia2 option must be finite: " + k);
   return value;
 }
-class Session final : public rt::IOfflineVoiceTaskSession {
+struct PrefixWord {
+  std::string text;
+  double start, end;
+};
+std::string
+string_option(const std::unordered_map<std::string, std::string> &opts,
+              const std::string &key) {
+  auto it = opts.find(key);
+  return it == opts.end() ? "" : it->second;
+}
+int integer_option(const std::unordered_map<std::string, std::string> &opts,
+                   const std::string &key, int fallback, int minimum,
+                   int maximum) {
+  auto value = string_option(opts, key);
+  if (value.empty() && key.rfind("dia2.", 0) == 0)
+    value = string_option(opts, key.substr(5));
+  if (value.empty())
+    return fallback;
+  size_t used = 0;
+  long long parsed = std::stoll(value, &used);
+  if (used != value.size() || parsed < minimum || parsed > maximum)
+    throw std::invalid_argument("Dia2 integer option out of range: " + key);
+  return int(parsed);
+}
+std::vector<PrefixWord>
+prefix_words(const std::unordered_map<std::string, std::string> &opts,
+             const std::string &key, const std::string &transcript,
+             double duration) {
+  auto json = string_option(opts, key);
+  std::vector<PrefixWord> words;
+  if (!json.empty()) {
+    std::unique_ptr<cJSON, decltype(&cJSON_Delete)> root(
+        cJSON_Parse(json.c_str()), cJSON_Delete);
+    if (!root || !cJSON_IsArray(root.get()))
+      throw std::invalid_argument(
+          key + " must be a JSON array of text/start/end words");
+    cJSON *item = nullptr;
+    double previous = 0;
+    cJSON_ArrayForEach(item, root.get()) {
+      auto text = cJSON_GetObjectItemCaseSensitive(item, "text");
+      auto start = cJSON_GetObjectItemCaseSensitive(item, "start");
+      auto end = cJSON_GetObjectItemCaseSensitive(item, "end");
+      if (!cJSON_IsString(text) || !text->valuestring[0] ||
+          !cJSON_IsNumber(start) || !cJSON_IsNumber(end) ||
+          !std::isfinite(start->valuedouble) ||
+          !std::isfinite(end->valuedouble) || start->valuedouble < previous ||
+          end->valuedouble < start->valuedouble ||
+          end->valuedouble > duration + 0.08)
+        throw std::invalid_argument(
+            "Invalid or unsorted reference word timestamps");
+      previous = start->valuedouble;
+      words.push_back(
+          {text->valuestring, start->valuedouble, end->valuedouble});
+    }
+  } else {
+    // A provided transcript makes the usual audio.cpp voice-ref API usable
+    // without a second inference model. Exact alignments are preferred.
+    std::istringstream input(transcript);
+    std::string word;
+    size_t total = 0;
+    while (input >> word) {
+      total += word.size();
+      words.push_back({word, 0, 0});
+    }
+    double position = std::min(0.08, duration / 10);
+    double usable = std::max(0.0, duration - position - 0.16);
+    for (auto &w : words) {
+      w.start = position;
+      position +=
+          usable * double(w.text.size()) / double(std::max(size_t(1), total));
+      w.end = position;
+    }
+  }
+  if (words.empty())
+    throw std::invalid_argument(
+        "Cloning requires reference_text or timed reference words");
+  return words;
+}
+class Session final : public rt::IOfflineVoiceTaskSession,
+                      public rt::IStreamingVoiceTaskSession {
   std::filesystem::path root, file;
   rt::SessionOptions options;
   rt::TaskSpec task;
@@ -529,6 +625,305 @@ class Session final : public rt::IOfflineVoiceTaskSession {
   std::shared_ptr<tokenizers::LlamaBpeTokenizer> tokenizer;
   std::shared_ptr<const codecs::MimiCodecWeights> mimi;
   std::unique_ptr<codecs::MimiDecoderRuntime> decoder;
+  std::unique_ptr<codecs::MimiEncoderRuntime> encoder;
+  struct Generation {
+    Machine machine;
+    std::vector<std::vector<int>> codes;
+    std::mt19937 rng;
+    float cfg = 6, temp = 0.8;
+    int maxsteps = 1500, step = 0, last = -1, main = 1, second = 3;
+    int crop = 0, emitted = 0, chunk_frames = 4;
+    bool done = false;
+    std::string dump;
+    rt::AudioBuffer accumulated;
+    Generation() {
+      accumulated.sample_rate = 24000;
+      accumulated.channels = 1;
+    }
+  };
+  std::unique_ptr<Generation> generation;
+
+  void ensure_codec() {
+    if (mimi)
+      return;
+    codecs::MimiCodecConfig mc;
+    mc.codebooks = 32;
+    auto source = assets::open_tensor_source(root / "mimi-f16.gguf");
+    mimi = codecs::load_mimi_codec_weights(
+        *source, mc, mimi_binding(), net->backend, net->backend_type,
+        32ull << 20, assets::TensorStorageType::Native);
+    decoder = std::make_unique<codecs::MimiDecoderRuntime>(
+        mimi, mc, net->backend, net->backend_type, options.backend.threads,
+        128ull << 20);
+    encoder = std::make_unique<codecs::MimiEncoderRuntime>(
+        mimi, mc, net->backend, net->backend_type, options.backend.threads,
+        128ull << 20);
+  }
+  static void sanitize(rt::AudioBuffer &audio) {
+    for (auto &v : audio.samples) {
+      if (!std::isfinite(v))
+        throw std::runtime_error("Dia2 non-finite codec output");
+      v = std::clamp(v, -1.0f, 1.0f);
+    }
+  }
+  void save(const std::string &name, const std::vector<float> &value) {
+    if (generation->dump.empty())
+      return;
+    std::ofstream out(std::filesystem::path(generation->dump) / name,
+                      std::ios::binary);
+    out.write(reinterpret_cast<const char *>(value.data()),
+              value.size() * sizeof(float));
+  }
+  std::unique_ptr<Graph> main_step(int t) {
+    auto &g = *generation;
+    auto graph = net->main_graph(t);
+    graph->set<int32_t>("main", {g.main, 7});
+    graph->set<int32_t>("second", {g.second, 3});
+    graph->set<float>("second_mask", {g.second == 3 ? 0.0f : 1.0f, 0.0f});
+    graph->set<int32_t>("position", {t});
+    for (int cb = 0; cb < 32; ++cb) {
+      int code = t < net->config.delays[cb] ? 2048 : g.codes[cb][t];
+      if (code < 0 || code > 2048)
+        throw std::runtime_error("Invalid Dia2 input code");
+      graph->set<int32_t>("audio" + std::to_string(cb), {code, code});
+    }
+    graph->compute();
+    return graph;
+  }
+  void initialize(const rt::TaskRequest &request) {
+    reset();
+    if (!request.text_input || request.text_input->text.empty())
+      throw std::invalid_argument("Dia2 requires text");
+    auto opts = options.options;
+    for (const auto &[k, v] : request.options) {
+      opts[k] = v;
+      // A request's short option overrides the namespaced session default.
+      if (k.rfind("dia2.", 0) != 0 &&
+          request.options.find("dia2." + k) == request.options.end())
+        opts["dia2." + k] = v;
+    }
+    auto state = std::make_unique<Generation>();
+    state->maxsteps =
+        integer_option(opts, "dia2.max_steps", net->config.max_steps, 20,
+                       net->config.max_steps);
+    state->cfg = option(opts, "dia2.cfg_scale", 6);
+    state->temp = option(opts, "dia2.temperature", 0.8);
+    if (state->temp < 0)
+      throw std::invalid_argument("Negative Dia2 temperature");
+    state->rng.seed(
+        integer_option(opts, "dia2.seed", 12345, INT32_MIN, INT32_MAX));
+    state->chunk_frames = integer_option(opts, "dia2.chunk_frames", 4, 1, 25);
+    if (state->chunk_frames < 1 || state->chunk_frames > 25)
+      throw std::invalid_argument("dia2.chunk_frames must be 1..25");
+    state->dump = string_option(opts, "dia2.dump_dir");
+    if (!state->dump.empty())
+      std::filesystem::create_directories(state->dump);
+    state->codes.assign(32, std::vector<int>(state->maxsteps + 1, 2049));
+    auto target = parse_script(request.text_input->text, *tokenizer);
+    if (target.empty())
+      throw std::invalid_argument("Dia2 script contains no words");
+    generation = std::move(state);
+    auto &g = *generation;
+    net->main_cache->reset();
+    net->dep_cache->reset();
+    ensure_codec();
+    decoder->reset_streaming();
+    const rt::AudioBuffer *reference = nullptr;
+    rt::AudioBuffer first_audio, second_audio;
+    if (request.voice && request.voice->speaker) {
+      if (request.voice->speaker->audio)
+        reference = &*request.voice->speaker->audio;
+      else if (request.voice->speaker->cached_voice_id)
+        throw std::invalid_argument(
+            "Dia2 named voice must resolve to reference audio");
+    }
+    auto first_path = string_option(opts, "dia2.prefix_speaker_1");
+    if (!first_path.empty()) {
+      first_audio = {
+          24000, 1,
+          audio::read_wav_f32_as_mono_linear_resampled(first_path, 24000)};
+      reference = &first_audio;
+    }
+    if (task.task == rt::VoiceTaskKind::VoiceCloning && !reference)
+      throw std::invalid_argument(
+          "Dia2 voice cloning requires reference audio");
+    auto second_path = string_option(opts, "dia2.prefix_speaker_2");
+    if (!second_path.empty() && !reference)
+      throw std::invalid_argument("Speaker two prefix requires speaker one");
+    std::vector<int32_t> prefix;
+    std::vector<int> forced_steps;
+    int prefix_frames = 0;
+    auto add_prefix = [&](const rt::AudioBuffer &input, int speaker) {
+      if (input.sample_rate <= 0 || input.channels <= 0 ||
+          input.samples.empty() ||
+          input.samples.size() % size_t(input.channels) != 0)
+        throw std::invalid_argument("Invalid Dia2 reference audio");
+      double duration =
+          double(input.samples.size()) / input.channels / input.sample_rate;
+      if (duration < 0.32 || duration > 30)
+        throw std::invalid_argument(
+            "Each Dia2 voice reference must be 0.32..30 seconds");
+      for (float value : input.samples)
+        if (!std::isfinite(value))
+          throw std::invalid_argument("Non-finite reference audio");
+      auto words = prefix_words(
+          opts,
+          speaker == 1 ? "dia2.reference_words" : "dia2.reference_words_2",
+          string_option(opts, speaker == 1 ? "reference_text"
+                                           : "dia2.reference_text_2"),
+          duration);
+      auto encoded = encoder->encode(input);
+      int frames = int(encoded.size() / 32);
+      if (prefix_frames + frames + 24 >= g.maxsteps)
+        throw std::invalid_argument(
+            "Reference prefix leaves no generation context");
+      int current = 0;
+      for (size_t i = 0; i < words.size(); ++i) {
+        auto tokens = tokenizer->encode(
+            (i == 0 ? (speaker == 1 ? "[S1] " : "[S2] ") : "") + words[i].text,
+            true);
+        int start =
+            std::max(current + 1, int(std::nearbyint(words[i].start * 12.5)));
+        int end = start + int(tokens.size());
+        int next = std::max(
+            end + 1,
+            int(std::nearbyint(
+                (i + 1 < words.size() ? words[i + 1].start : words[i].end) *
+                12.5)));
+        int step = start - 1 + (speaker == 1 ? 3 : prefix_frames);
+        if (step >= prefix_frames + frames)
+          throw std::invalid_argument(
+              "Reference text tokens exceed its audio duration; use a longer "
+              "reference or accurate timed words");
+        forced_steps.push_back(step);
+        g.machine.entries.push_back(
+            {tokens, words[i].text, std::max(0, next - start - 1)});
+        current = end;
+      }
+      prefix.insert(prefix.end(), encoded.begin(), encoded.end());
+      prefix_frames += frames;
+    };
+    if (reference)
+      add_prefix(*reference, 1);
+    if (!second_path.empty()) {
+      second_audio = {
+          24000, 1,
+          audio::read_wav_f32_as_mono_linear_resampled(second_path, 24000)};
+      add_prefix(second_audio, 2);
+    }
+    for (auto &e : target)
+      g.machine.entries.push_back(std::move(e));
+    if (prefix_frames) {
+      for (int frame = 0; frame < prefix_frames; ++frame)
+        for (int cb = 0; cb < 32; ++cb)
+          g.codes[cb][frame + net->config.delays[cb]] = prefix[frame * 32 + cb];
+      for (int t = 0; t < prefix_frames; ++t) {
+        auto graph = main_step(t);
+        auto pair = g.machine.process(t,
+                                      std::find(forced_steps.begin(),
+                                                forced_steps.end(),
+                                                t) != forced_steps.end()
+                                          ? 1
+                                          : 0,
+                                      true);
+        g.main = pair.first;
+        g.second = pair.second;
+        if (t < 3 || t == prefix_frames - 1)
+          save("prefix-hidden-" + std::to_string(t) + ".f32",
+               graph->get("hidden"));
+      }
+      // Upstream resumes at the last prefix step (overwriting that KV slot).
+      g.step = prefix_frames - 1;
+      auto keep = string_option(opts, "dia2.include_prefix");
+      if (!keep.empty() && keep != "true" && keep != "false" && keep != "1" &&
+          keep != "0")
+        throw std::invalid_argument(
+            "dia2.include_prefix must be true or false");
+      g.crop = keep == "true" || keep == "1" ? 0 : g.step;
+      g.emitted = g.crop;
+      if (!g.dump.empty()) {
+        std::ofstream out(std::filesystem::path(g.dump) / "prefix-codes.i32",
+                          std::ios::binary);
+        out.write(reinterpret_cast<const char *>(prefix.data()),
+                  prefix.size() * sizeof(int32_t));
+      }
+    }
+  }
+  void advance() {
+    auto &g = *generation;
+    if (g.done)
+      return;
+    if (g.step >= g.maxsteps ||
+        (g.machine.end >= 0 && g.step >= g.machine.end + 24)) {
+      if (g.machine.end < 0 || g.step < g.machine.end + 24)
+        throw std::runtime_error("Dia2 max_steps reached before completing the "
+                                 "script and audio tail");
+      g.done = true;
+      return;
+    }
+    int t = g.step;
+    auto graph = main_step(t);
+    auto hidden = graph->get("hidden"), action = graph->get("action"),
+         cb0 = graph->get("cb0");
+    if (t < 3 || t == g.crop) {
+      save("hidden-" + std::to_string(t) + ".f32", hidden);
+      save("action-" + std::to_string(t) + ".f32", action);
+      save("cb0-" + std::to_string(t) + ".f32", cb0);
+    }
+    auto pair =
+        g.machine.process(t, sample(action, 2, 2, g.cfg, 50, 0.6, 50, g.rng));
+    g.main = pair.first;
+    g.second = pair.second;
+    int prev = sample(cb0, 2050, 2048, g.cfg, 50, g.temp, 50, g.rng);
+    g.codes[0][t + 1] = prev;
+    net->dep_cache->reset();
+    for (int stage = 0; stage < 31; ++stage) {
+      auto &dg = net->dep_graph(stage);
+      dg.set<float>("hidden", hidden);
+      dg.set<int32_t>("audio", {prev, prev});
+      dg.compute();
+      auto logits = dg.get("logits");
+      if (t == 0 && stage < 3)
+        save("dep-" + std::to_string(stage) + ".f32", logits);
+      prev = sample(logits, 2050, 2048, g.cfg, 50, g.temp, 50, g.rng);
+      g.codes[stage + 1][t + 1] = prev;
+    }
+    g.last = t;
+    ++g.step;
+    if (t % 12 == 0)
+      std::cerr << "Dia2: " << t + 1 << " frames, " << g.machine.entries.size()
+                << " words remaining\n";
+  }
+  int ready_frames() const {
+    return std::max(0, generation->last + 2 -
+                           *std::max_element(net->config.delays.begin(),
+                                             net->config.delays.end()));
+  }
+  std::vector<int32_t> aligned(int start, int end) {
+    std::vector<int32_t> out;
+    for (int f = start; f < end; ++f)
+      for (int cb = 0; cb < 32; ++cb) {
+        int id = generation->codes[cb][f + net->config.delays[cb]];
+        if (id < 0 || id >= 2048)
+          throw std::runtime_error("Invalid aligned Dia2 audio token");
+        out.push_back(id);
+      }
+    return out;
+  }
+  void dump_result() {
+    if (generation->dump.empty())
+      return;
+    auto codes = aligned(generation->crop, ready_frames());
+    std::ofstream out(std::filesystem::path(generation->dump) / "codes.i32",
+                      std::ios::binary);
+    out.write(reinterpret_cast<const char *>(codes.data()),
+              codes.size() * sizeof(int32_t));
+    std::ofstream timing(std::filesystem::path(generation->dump) /
+                         "text-timing.tsv");
+    for (auto &[word, step] : generation->machine.transcript)
+      if (step >= generation->crop)
+        timing << step - generation->crop << '\t' << word << '\n';
+  }
 
 public:
   Session(std::filesystem::path r, std::filesystem::path f, rt::TaskSpec t,
@@ -545,143 +940,85 @@ public:
   }
   std::string family() const override { return "dia2"; }
   rt::VoiceTaskKind task_kind() const override { return task.task; }
-  rt::RunMode run_mode() const override { return rt::RunMode::Offline; }
+  rt::RunMode run_mode() const override { return task.mode; }
   void prepare(const rt::SessionPreparationRequest &) override {}
   rt::TaskResult run(const rt::TaskRequest &request) override {
-    if (!request.text_input || request.text_input->text.empty())
-      throw std::runtime_error("Dia2 requires text");
-    if (request.voice)
-      throw std::runtime_error(
-          "Dia2 voice conditioning is not yet supported by this port");
-    auto opts = options.options;
-    for (const auto &[k, v] : request.options)
-      opts[k] = v;
-    Machine machine;
-    for (auto &e : parse_script(request.text_input->text, *tokenizer))
-      machine.entries.push_back(std::move(e));
-    if (machine.entries.empty())
-      throw std::runtime_error("Dia2 script contains no words");
-    int maxsteps = int(option(opts, "dia2.max_steps", net->config.max_steps));
-    maxsteps = std::clamp(maxsteps, 20, net->config.max_steps);
-    float cfg = option(opts, "dia2.cfg_scale", 6),
-          temp = option(opts, "dia2.temperature", 0.8);
-    int seed = int(option(opts, "dia2.seed", 12345));
-    std::mt19937 rng(seed);
-    net->main_cache->reset();
-    net->dep_cache->reset();
-    std::vector<std::vector<int>> codes(32,
-                                        std::vector<int>(maxsteps + 1, 2049));
-    int main = 1, second = 3, last = -1;
-    std::string dump;
-    auto dit = opts.find("dia2.dump_dir");
-    if (dit != opts.end()) {
-      dump = dit->second;
-      std::filesystem::create_directories(dump);
-    }
-    auto save = [&](const std::string &name, const std::vector<float> &v) {
-      if (!dump.empty()) {
-        std::ofstream f(std::filesystem::path(dump) / name, std::ios::binary);
-        f.write(reinterpret_cast<const char *>(v.data()),
-                v.size() * sizeof(float));
-      }
-    };
-    for (int t = 0; t < maxsteps; ++t) {
-      if (machine.end >= 0 && t >= machine.end + 24)
-        break;
-      auto g = net->main_graph(t);
-      g->set<int32_t>("main", {main, 7});
-      g->set<int32_t>("second", {second, 3});
-      g->set<float>("second_mask", {second == 3 ? 0.0f : 1.0f, 0.0f});
-      g->set<int32_t>("position", {t});
-      for (int i = 0; i < 32; ++i) {
-        int value = t < net->config.delays[i] ? 2048 : codes[i][t];
-        g->set<int32_t>("audio" + std::to_string(i), {value, value});
-      }
-      g->compute();
-      auto hidden = g->get("hidden"), action = g->get("action"),
-           cb0 = g->get("cb0");
-      if (t < 3) {
-        save("hidden-" + std::to_string(t) + ".f32", hidden);
-        save("action-" + std::to_string(t) + ".f32", action);
-        save("cb0-" + std::to_string(t) + ".f32", cb0);
-      }
-      auto pair =
-          machine.process(t, sample(action, 2, 2, cfg, 50, 0.6, 50, rng));
-      main = pair.first;
-      second = pair.second;
-      int prev = sample(cb0, 2050, 2048, cfg, 50, temp, 50, rng);
-      codes[0][t + 1] = prev;
-      net->dep_cache->reset();
-      for (int stage = 0; stage < 31; ++stage) {
-        auto &dg = net->dep_graph(stage);
-        dg.set<float>("hidden", hidden);
-        dg.set<int32_t>("audio", {prev, prev});
-        dg.compute();
-        auto logits = dg.get("logits");
-        if (t == 0 && stage < 3)
-          save("dep-" + std::to_string(stage) + ".f32", logits);
-        prev = sample(logits, 2050, 2048, cfg, 50, temp, 50, rng);
-        codes[stage + 1][t + 1] = prev;
-      }
-      last = t;
-      if (t % 12 == 0)
-        std::cerr << "Dia2: " << t + 1 << " frames, " << machine.entries.size()
-                  << " words remaining\n";
-    }
-    if (machine.end < 0)
-      throw std::runtime_error(
-          "Dia2 reached max_steps before completing the script");
-    int frames =
-        last + 2 -
-        *std::max_element(net->config.delays.begin(), net->config.delays.end());
-    std::vector<int32_t> aligned(size_t(frames * 32));
-    for (int f = 0; f < frames; ++f)
-      for (int cb = 0; cb < 32; ++cb) {
-        int id = codes[cb][f + net->config.delays[cb]];
-        if (id < 0 || id >= 2048)
-          throw std::runtime_error("Dia2 invalid aligned audio token");
-        aligned[f * 32 + cb] = id;
-      }
-    if (!dump.empty()) {
-      std::ofstream f(std::filesystem::path(dump) / "codes.i32",
-                      std::ios::binary);
-      f.write(reinterpret_cast<const char *>(aligned.data()),
-              aligned.size() * sizeof(int32_t));
-      std::ofstream m(std::filesystem::path(dump) / "text-timing.tsv");
-      for (auto &[word, step] : machine.transcript)
-        m << step << '\t' << word << '\n';
-    }
-    if (!mimi) {
-      codecs::MimiCodecConfig mc;
-      mc.codebooks = 32;
-      auto source = assets::open_tensor_source(root / "mimi-f16.gguf");
-      mimi = codecs::load_mimi_codec_weights(
-          *source, mc, mimi_binding(), net->backend, net->backend_type,
-          32ull << 20, assets::TensorStorageType::Native);
-      decoder = std::make_unique<codecs::MimiDecoderRuntime>(
-          mimi, mc, net->backend, net->backend_type, options.backend.threads,
-          128ull << 20);
-    }
+    initialize(request);
+    while (!generation->done)
+      advance();
+    int frames = ready_frames() - generation->crop;
+    if (frames <= 0)
+      throw std::runtime_error("Dia2 produced no new audio");
     rt::TaskResult result;
-    result.audio_output = decoder->decode(aligned, frames);
-    for (float &s : result.audio_output->samples) {
-      if (!std::isfinite(s))
-        throw std::runtime_error("Dia2 codec returned non-finite samples");
-      s = std::clamp(s, -1.0f, 1.0f);
-    }
+    result.audio_output =
+        decoder->decode(aligned(generation->crop, ready_frames()), frames);
+    sanitize(*result.audio_output);
+    dump_result();
     return result;
   }
+  rt::StreamingPolicy streaming_policy() const override {
+    rt::StreamingPolicy policy;
+    policy.input = rt::StreamingInputKind::None;
+    policy.output = rt::StreamingOutputKind::PullEvents;
+    return policy;
+  }
+  void start_stream(const rt::TaskRequest &request) override {
+    initialize(request);
+  }
+  std::optional<rt::StreamEvent> next_stream_event() override {
+    if (!generation)
+      throw std::runtime_error("Dia2 stream not started");
+    auto &g = *generation;
+    while (!g.done && ready_frames() - g.emitted < g.chunk_frames)
+      advance();
+    int frames = ready_frames() - g.emitted;
+    if (frames <= 0)
+      return std::nullopt;
+    frames = std::min(frames, g.chunk_frames);
+    rt::StreamEvent event;
+    event.audio_output = decoder->decode_streaming(
+        aligned(g.emitted, g.emitted + frames), frames);
+    sanitize(*event.audio_output);
+    g.accumulated.samples.insert(g.accumulated.samples.end(),
+                                 event.audio_output->samples.begin(),
+                                 event.audio_output->samples.end());
+    g.emitted += frames;
+    return event;
+  }
+  void set_stream_event_sink(rt::StreamEventCallback) override {}
+  rt::TaskResult finish_stream() override {
+    if (!generation)
+      throw std::runtime_error("Dia2 stream not started");
+    while (next_stream_event()) {
+    }
+    if (generation->accumulated.samples.empty())
+      throw std::runtime_error("Dia2 produced no streamed audio");
+    dump_result();
+    rt::TaskResult result;
+    result.audio_output = generation->accumulated;
+    return result;
+  }
+  void reset() override { generation.reset(); }
+  rt::StreamEvent process_audio_chunk(const rt::AudioChunk &) override {
+    throw std::runtime_error("Dia2 TTS takes text and optional voice "
+                             "reference; live audio input is not supported");
+  }
+  rt::TaskResult finalize() override { return finish_stream(); }
 };
 rt::CapabilitySet caps() {
   rt::CapabilitySet c;
-  c.supported_tasks = {{rt::VoiceTaskKind::Tts, {rt::RunMode::Offline}}};
+  c.supported_tasks = {
+      {rt::VoiceTaskKind::Tts, {rt::RunMode::Offline, rt::RunMode::Streaming}}};
+  c.supports_speaker_reference = true;
+  c.supported_tasks.push_back({rt::VoiceTaskKind::VoiceCloning,
+                               {rt::RunMode::Offline, rt::RunMode::Streaming}});
   c.languages = {"en"};
   return c;
 }
 rt::ModelMetadata make_metadata() {
   return {"dia2",
           "Dia2",
-          "Nari Labs Dia2 offline dialogue TTS (experimental native GGUF port)",
+          "Nari Labs Dia2 TTS, audio-prefix cloning and streaming PCM",
           {"config.json"},
           {"dia2-f16.gguf", "dia2-q8.gguf", "dia2-f32.gguf"}};
 }
@@ -708,8 +1045,10 @@ public:
   std::unique_ptr<rt::IVoiceTaskSession>
   create_task_session(const rt::TaskSpec &t,
                       const rt::SessionOptions &o) const override {
-    if (t.task != rt::VoiceTaskKind::Tts || t.mode != rt::RunMode::Offline)
-      throw std::runtime_error("Dia2 currently supports offline TTS only");
+    if ((t.task != rt::VoiceTaskKind::Tts &&
+         t.task != rt::VoiceTaskKind::VoiceCloning) ||
+        (t.mode != rt::RunMode::Offline && t.mode != rt::RunMode::Streaming))
+      throw std::runtime_error("Dia2 supports offline and streaming TTS");
     return std::make_unique<Session>(root, file, t, o);
   }
 };
@@ -770,12 +1109,23 @@ void run_parity_probe(const std::filesystem::path &root,
     for (auto key : {"hidden", "action", "cb0"})
       save(std::string(key) + "-" + std::to_string(step) + ".f32", g->get(key));
   }
+  std::vector<std::vector<float>> depth_outputs;
   for (int stage = 0; stage < 31; ++stage) {
     auto &g = net.dep_graph(stage);
     g.set<float>("hidden", hidden);
     g.set<int32_t>("audio", {123 + stage, 123 + stage});
     g.compute();
-    save("dep-" + std::to_string(stage) + ".f32", g.get("logits"));
+    depth_outputs.push_back(g.get("logits"));
+    save("dep-" + std::to_string(stage) + ".f32", depth_outputs.back());
+  }
+  net.dep_cache->reset();
+  for (int stage = 0; stage < 31; ++stage) {
+    auto &g = net.dep_graph(stage);
+    g.set<float>("hidden", hidden);
+    g.set<int32_t>("audio", {123 + stage, 123 + stage});
+    g.compute();
+    if (g.get("logits") != depth_outputs[stage])
+      throw std::runtime_error("Dia2 cached depth graph changed on reuse");
   }
   codecs::MimiCodecConfig mc;
   mc.codebooks = 32;
@@ -790,10 +1140,26 @@ void run_parity_probe(const std::filesystem::path &root,
     codes[i] = (i * 37 + 41) % 2048;
   auto audio = decoder.decode(codes, 8);
   save("mimi.f32", audio.samples);
+  decoder.reset_streaming();
+  std::vector<float> streamed;
+  for (int start = 0; start < 8; start += 4) {
+    auto part = decoder.decode_streaming(
+        std::vector<int32_t>(codes.begin() + start * 32,
+                             codes.begin() + (start + 4) * 32),
+        4);
+    streamed.insert(streamed.end(), part.samples.begin(), part.samples.end());
+  }
+  save("mimi-stream.f32", streamed);
+  codecs::MimiEncoderRuntime encoder(mimi, mc, net.backend, net.backend_type,
+                                     options.backend.threads, 128ull << 20);
+  auto encoded = encoder.encode(audio);
+  std::ofstream encoded_out(output / "mimi-encoded.i32", std::ios::binary);
+  encoded_out.write(reinterpret_cast<const char *>(encoded.data()),
+                    encoded.size() * sizeof(int32_t));
   auto mc8 = mc;
   mc8.codebooks = 8;
   codecs::MimiDecoderRuntime decoder8(mimi, mc8, net.backend, net.backend_type,
-                                    options.backend.threads, 128ull << 20);
+                                      options.backend.threads, 128ull << 20);
   std::vector<int32_t> codes8;
   for (int frame = 0; frame < 8; ++frame)
     codes8.insert(codes8.end(), codes.begin() + frame * 32,
@@ -806,6 +1172,41 @@ void run_parity_probe(const std::filesystem::path &root,
   spec.tokenizer_json_path = root / "tokenizer.json";
   spec.pre_type = tokenizers::LlamaBpePreTokenizer::Gpt2;
   auto tokenizer = tokenizers::load_llama_bpe_tokenizer(spec);
+  std::ofstream tags(output / "vocal-tags.tsv");
+  for (auto &e :
+       parse_script("[S1] Hello. (laughs) (clears throat) (car engine sound)",
+                    *tokenizer)) {
+    tags << e.word;
+    for (auto id : e.tokens)
+      tags << '\t' << id;
+    tags << '\n';
+  }
+  net.main_cache->reset();
+  Machine prefix_machine;
+  for (auto &e : parse_script("Hello there. Next speech.", *tokenizer))
+    prefix_machine.entries.push_back(e);
+  int prefix_main = 1, prefix_second = 3;
+  std::ofstream trace(output / "prefix-state.tsv");
+  for (int t = 0; t < 32; ++t) {
+    auto g = net.main_graph(t);
+    g->set<int32_t>("main", {prefix_main, 7});
+    g->set<int32_t>("second", {prefix_second, 3});
+    g->set<float>("second_mask", {prefix_second == 3 ? 0.f : 1.f, 0.f});
+    g->set<int32_t>("position", {t});
+    for (int cb = 0; cb < 32; ++cb) {
+      int value = t < net.config.delays[cb]
+                      ? 2048
+                      : ((t - net.config.delays[cb]) * 17 + cb * 37) % 2048;
+      g->set<int32_t>("audio" + std::to_string(cb), {value, value});
+    }
+    g->compute();
+    if (t == 0 || t == 16 || t == 31)
+      save("prefix-hidden-" + std::to_string(t) + ".f32", g->get("hidden"));
+    auto pair = prefix_machine.process(t, t == 3 || t == 12 ? 1 : 0, true);
+    prefix_main = pair.first;
+    prefix_second = pair.second;
+    trace << t << '\t' << prefix_main << '\t' << prefix_second << '\n';
+  }
   std::ofstream entries(output / "entries.tsv");
   for (auto &e :
        parse_script("[S1] Hello there! [S2] Does this work?", *tokenizer)) {

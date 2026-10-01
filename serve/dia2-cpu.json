@@ -12,11 +12,12 @@
       "family": "dia2",
       "path": "../models/Dia2-1B-GGUF/dia2-f16.gguf",
       "task": "tts",
-      "mode": "offline",
+      "mode": "streaming",
       "session_options": {
         "dia2.seed": "12345",
         "dia2.cfg_scale": "6.0"
       }
     }
-  ]
+  ],
+  "voice_dir": "voices"
 }

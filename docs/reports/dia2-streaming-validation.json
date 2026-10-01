@@ -1,0 +1,74 @@
+{
+  "default": {
+    "voice": null,
+    "audio_seconds": 2.56,
+    "first_audio_seconds": 10.34894314801204,
+    "wall_seconds": 30.626604165998287,
+    "chunks": 8,
+    "chunk_arrival_seconds": [
+      10.34894314801204,
+      12.13078616000712,
+      14.13982151800883,
+      16.240823052008636,
+      18.04711516300449,
+      20.332941564003704,
+      26.81211857701419,
+      30.62644208301208
+    ],
+    "stream_full_max_pcm_error": 0
+  },
+  "kitt": {
+    "voice": "kitt",
+    "audio_seconds": 4.0,
+    "first_audio_seconds": 19.858987597981468,
+    "wall_seconds": 35.03301923099207,
+    "chunks": 13,
+    "chunk_arrival_seconds": [
+      19.858987597981468,
+      21.154197734984336,
+      22.454974383988883,
+      23.804146911978023,
+      25.096384619973833,
+      26.404847241996322,
+      27.720638710976345,
+      29.04637975699734,
+      30.342414379992988,
+      31.690956018981524,
+      33.04370830999687,
+      34.36599773098715,
+      35.03281115400023
+    ],
+    "stream_full_max_pcm_error": 0,
+    "threads": 2,
+    "transcription_matches_requested_text": true
+  },
+  "lou": {
+    "voice": "lou",
+    "audio_seconds": 4.16,
+    "first_audio_seconds": 23.078350700990995,
+    "wall_seconds": 42.65644209299353,
+    "chunks": 13,
+    "chunk_arrival_seconds": [
+      23.078350700990995,
+      24.477225524984533,
+      25.983518325985642,
+      27.383854137995513,
+      28.893531969981268,
+      30.78471736999927,
+      33.36631244298769,
+      35.26849868899444,
+      36.93645731397555,
+      38.421510825981386,
+      39.88293621799676,
+      41.28189759197994,
+      42.656279325979995
+    ],
+    "stream_full_max_pcm_error": 0,
+    "threads": 2,
+    "cold_start": true,
+    "neutral_sample_seed": 42,
+    "neutral_sample_transcription_matches_requested_text": true,
+    "laughter_sample_transcription": "",
+    "note": "The laughter sample passes deterministic stream/full PCM comparison, but ASR did not recover intelligible words. A neutral sample with seed 42 transcribed correctly. Vocal cues are optional and sampling quality varies."
+  }
+}

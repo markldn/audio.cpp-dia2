@@ -19,7 +19,7 @@ build/dia2-cpu/bin/audiocpp_cli --task tts --family dia2 \
 
 The separate CPU server listens on `127.0.0.1:8197`, with model ID `dia2-1b`. Existing audio.cpp servers can keep their binaries, model directories, ports and profiles. Use a separate checkout/build directory when installing this fork alongside a working installation.
 
-An example user service is provided in `serve/audiocpp-dia2-server.service`; adjust its checkout location before installing. For a llama-swap chat proxy, add a separate TTS route pointing to this server, with model `dia2-1b` and no `voice` field. Allow up to 30 minutes for CPU requests. Keep this route outside any GPU1 model-unload logic.
+An example user service is provided in `serve/audiocpp-dia2-server.service`; adjust its checkout location before installing. For a llama-swap chat proxy, add a separate TTS route pointing to this server, with model `dia2-1b`. Omit `voice` for an unconditioned voice, or supply a configured voice-library name for cloning. Allow up to 30 minutes for CPU requests. Keep this route outside any GPU1 model-unload logic.
 
 ```sh
 curl http://127.0.0.1:8197/v1/audio/speech \
@@ -28,9 +28,46 @@ curl http://127.0.0.1:8197/v1/audio/speech \
   --output speech.wav
 ```
 
-Do not supply a `voice` field: voice-prefix conditioning is not implemented. Plain text defaults to speaker one; `[S1]` and `[S2]` markers support dialogue. Output is mono 24 kHz WAV. Generation is offline and can take several minutes on CPU, even for a short sentence. This is not a realtime CPU speech engine.
+Plain text defaults to speaker one; `[S1]` and `[S2]` markers support dialogue. Output is mono 24 kHz. Ordinary requests return a complete WAV; streaming requests deliver incremental PCM. CPU generation remains slower than realtime and competing workloads can increase latency substantially.
 
-For AMD HIP, build with `HIP_ARCH=<your architecture> ./serve/build-dia2.sh hip`, then use `./serve/start-dia2.sh gpu1`. The supplied HIP profile selects device 1. CPU inference is validated; HIP performance and correctness must be checked on the target GPU before relying on that profile. Do not evict existing GPU workloads just to validate this port.
+For AMD HIP, build with `HIP_ARCH=<your architecture> ./serve/build-dia2.sh hip`, then use `./serve/start-dia2.sh gpu1`. The supplied HIP profile selects device 1. For Vulkan, build with `./serve/build-dia2.sh vulkan`, then use `./serve/start-dia2.sh vulkan-gpu1`; this hides other Vulkan devices with `GGML_VK_VISIBLE_DEVICES=1` and selects visible device zero. CPU inference is validated; GPU builds are checked by compilation only. Do not evict existing GPU workloads to validate this port.
+
+## Voice cloning and profiles
+
+Supply reference audio plus its transcript. The native Mimi encoder produces 32-codebook prefix tokens, and the model warms its temporal cache while consuming forced prefix words before generating the new script. The reference prefix is cropped from output by default. Each reference must be 0.32–30 seconds, and prefix plus generated speech must fit the 1500-frame context. Speaker-two conditioning is also accepted using the options below; the measured profile tests use a single reference speaker.
+
+```sh
+curl http://127.0.0.1:8197/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"dia2-1b","input":"Hello there.","voice_ref":"/absolute/reference.wav","reference_text":"The exact words spoken in the reference.","response_format":"wav"}' \
+  --output cloned.wav
+```
+
+For best alignment, pass `options["dia2.reference_words"]` as a JSON string containing `[{"text":"Hello","start":0.1,"end":0.5}, ...]`, with timestamps in seconds. A transcript alone uses approximate length-weighted word timing; this is convenient but can reduce clone quality relative to accurate word timestamps. A second speaker uses `dia2.prefix_speaker_2` (WAV path) plus `dia2.reference_text_2` or `dia2.reference_words_2`. Set `dia2.include_prefix=true` to retain the prefix. No Python or ASR model is required for native inference.
+
+The profiles use the private `serve/voices/` directory. Put mono WAV files and a `prompt_text` file there, with lines `name|exact reference transcript`. Named profiles are discovered by `GET /v1/audio/voices?model=dia2-1b`; request them using `"voice":"name"`. Recordings and private transcripts are ignored by Git and are not uploaded with the GGUF package.
+
+`serve/dia2-kitt-cpu.json` and `./serve/start-dia2.sh kitt-cpu` demonstrate a KITT CPU profile with two threads to reduce contention on a busy machine. On the local chat installation, the existing KITT and Lou recordings are reused as `dia2:kitt` / **Dia 2 KITT (CPU)** and `dia2:lou` / **Dia 2 Lou (CPU)**. Existing Chatterbox profiles remain available. Settings can choose a main, narrator or character voice, and the roleplay panel can override the character voice for a specific chat. KITT/Lou voice modes prefer an explicitly selected Dia2 profile and otherwise use the available engine choices.
+
+## Incremental audio streaming
+
+The supplied server profiles use `mode=streaming` and accept both complete WAV requests and incremental PCM requests. Streaming advances the same generation state and decodes each completed group of delayed audio frames through stateful Mimi. It does not regenerate text sentence by sentence. `dia2.chunk_frames` controls chunk size (1–25, default four frames / 320 ms).
+
+```sh
+curl -N http://127.0.0.1:8197/v1/audio/speech \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"dia2-1b","input":"Hello there. This is streaming speech.","stream":true,"stream_format":"sse","response_format":"pcm"}'
+```
+
+SSE carries base64 signed 16-bit little-endian mono PCM at 24 kHz, followed by `speech.audio.done` and `[DONE]`. `stream_format=audio` delivers raw PCM bytes instead. WAV is supported for complete responses only. The chat proxy forwards raw PCM promptly and the browser schedules arriving chunks with WebAudio; stop cancels the request and queued audio. CPU generation can leave playback gaps because it is slower than realtime. Cloning adds prefix preparation latency. Incremental text input and live speech-to-speech input are not implemented; supply the complete requested script.
+
+## Vocal cues and chat behavior
+
+Dia2's official [demo](https://github.com/nari-labs/dia2/blob/main/gradio_app.py) uses `(laughs)`, and the bundled tokenizer defines cues including `(sighs)`, `(gasps)`, `(whispers)`, `(sobs)` and `(clears throat)`. These use parentheses; arbitrary `(happy)` or `(angry)` tags are not a documented control. The native parser preserves supported multiword tags as single tokenizer tokens. A recognized token does not guarantee the desired acoustic effect or intelligibility on every sample; try neutral text or another seed if a cue produces poor audio.
+
+For example: `[S1] That was a good joke. (laughs) I will give you that one.` Use cues sparingly. Tone and subtle emotions also depend on wording and reference audio.
+
+The local chat's optional **Let Dia 2 use occasional vocal cues when appropriate** setting instructs the conversation model to default to neutral speech and use at most one context-appropriate cue in a short reply. In roleplay the cue stays inside quoted character dialogue; the narrator voice is independent. This is model-guided behavior, not a guaranteed emotion classifier. No GPU model request is needed to configure the setting.
 
 ## Conversion and validation
 
@@ -49,11 +86,11 @@ Reference validation requires the dependencies of the upstream model modules and
 
 With compilation finished and the model resident, a subsequent CPU server request generated **exactly 10.0 seconds of audio in 61.20 seconds**, using six requested threads (RTF 6.12). See [the measured request](reports/dia2-cpu-benchmark.json). Cold loading and competing workloads add latency.
 
-The validated CPU smoke test, run during HIP compilation, produced 4.48 seconds of audio in 739.32 seconds on a busy machine (six requested threads, peak RSS approximately 3.19 GiB). Parakeet recognized the sentence, with errors for the model name and spelled-out letters. The eight-codebook decoder regression and tokenizer/speaker-marker comparison also passed. Numerical results are recorded in [dia2-f16-parity.json](reports/dia2-f16-parity.json).
+The validated CPU smoke test, run during HIP compilation, produced 4.48 seconds of audio in 739.32 seconds on a busy machine (six requested threads, peak RSS approximately 3.19 GiB). Parakeet recognized the sentence, with errors for the model name and spelled-out letters. The eight-codebook decoder regression and tokenizer/speaker-marker comparison also passed. Updated prefix, encoder, streaming and transformer results are recorded in [dia2-parity-report.json](reports/dia2-parity-report.json). HTTP timings and streaming/full equivalence are recorded in [dia2-streaming-validation.json](reports/dia2-streaming-validation.json).
 
 GGUF stores short physical tensor names plus logical names, original ranks and shapes in metadata. Mimi conversion also translates HF module names and its rotary projection layout. The existing Mimi runtime now honors its configured codebook count; its default remains eight for existing users.
 
-Supported: English offline 1B TTS and speaker-marked dialogue. Not yet validated or implemented: 2B model inference, streaming, voice-prefix cloning and non-English speech. The converter accepts F32/F16/Q8; only the F16 package has been validated.
+Supported and CPU-checked: English 1B TTS, speaker-marked dialogue, single-speaker audio-prefix cloning and incremental audio output. Two-speaker prefixes are implemented but have not been acoustically validated. Not yet validated or implemented: 2B model inference, incremental text/live audio input and non-English speech. The converter accepts F32/F16/Q8; only the F16 package has been validated.
 
 ## Attribution and licenses
 

@@ -2,7 +2,7 @@
 
 ## Dia 2 experimental fork
 
-This fork adds native Dia2-1B GGUF inference, including the 32-codebook Mimi decoder. See [the Dia 2 guide](docs/dia2.md) for isolated CPU/HIP builds, server profiles, conversion, validation and current limitations. Download the complete [Dia2-1B F16 package](https://huggingface.co/markldn/Dia2-1B-GGUF). CPU inference is validated; streaming and voice-prefix cloning are not implemented. The upstream README follows below.
+This fork adds native Dia2-1B GGUF inference, audio-prefix voice cloning, incremental PCM streaming and the 32-codebook Mimi encoder/decoder. See [the Dia 2 guide](docs/dia2.md) for isolated CPU/HIP/Vulkan builds, server/voice profiles, conversion, validation and current limitations. Download the complete [Dia2-1B F16 package](https://huggingface.co/markldn/Dia2-1B-GGUF). Inference is validated on CPU; GPU backends are compiled without inference testing. The upstream README follows below.
 
 [![0xShug0/audio.cpp | Trendshift](https://trendshift.io/api/badge/trendshift/repositories/64983/daily?language=C%2B%2B)](https://trendshift.io/repositories/64983?utm_source=trendshift-badge&utm_medium=badge&utm_campaign=badge-trendshift-64983)
 
